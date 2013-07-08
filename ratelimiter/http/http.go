@@ -4,6 +4,8 @@ package http
 import (
 	"net/http"
 	"strings"
+	"time"
+	"fmt"
 )
 
 const StatusTooManyRequests = 429
@@ -13,7 +15,7 @@ type RateLimitedHandler struct {
 	rateLimiter RateLimiter
 }
 
-type RateLimiter func(*http.Request) bool
+type RateLimiter func(*http.Request) (ok bool, retryAfter time.Duration)
 
 func Decorate(delegate http.Handler, rateLimiter RateLimiter) RateLimitedHandler {
 	if rateLimiter == nil {
@@ -23,9 +25,12 @@ func Decorate(delegate http.Handler, rateLimiter RateLimiter) RateLimitedHandler
 }
 
 func (lh RateLimitedHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
-	if lh.rateLimiter(r) {
+	if ok, retryAfter := lh.rateLimiter(r); ok {
 		lh.Handler.ServeHTTP(rw, r)
 	} else {
+		if retryAfter != nil {
+			rw.Header().Set("Retry-After", fmt.Sprint(retryAfter))
+		}
 		http.Error(rw, "Too many requests", StatusTooManyRequests)
 	}
 }
